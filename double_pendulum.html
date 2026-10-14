@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>双摆模拟器 · Double Pendulum</title>
+<style>
+  :root {
+    --bg: #14141a;
+    --accent: #5ad1ff;
+    --text: #e6edf3;
+    --muted: #8b95a5;
+    --panel: rgba(18, 20, 26, 0.84);
+    --line: rgba(255, 255, 255, 0.09);
+  }
+
+  * { box-sizing: border-box; }
+
+  /* 纵向布局：画布占满剩余空间，底部控制栏在文档流中，不遮挡摆球 */
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  body { display: flex; flex-direction: column; }
+
+  canvas {
+    display: block;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    touch-action: none;            /* 手势交给脚本，禁止浏览器滚动/缩放干扰 */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+
+  /* ---------- 底部参数控制栏 ---------- */
+  #dock {
+    flex: none;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
+    align-items: end;
+    gap: 14px;
+    padding: 13px 20px 15px;
+    background: rgba(12, 14, 19, 0.94);
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+  }
+  #dock .sl { min-width: 0; }
+  #dock .lab {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  #dock .lab b {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  #dock input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+  .dock-btns { display: flex; gap: 8px; }
+  .dock-btns button { flex: none; min-width: 76px; padding: 9px 16px; }
+
+  /* ---------- 实时数据 HUD ---------- */
+  #hud {
+    position: fixed;
+    top: 16px;
+    left: 18px;
+    padding: 13px 15px;
+    min-width: 208px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    font-size: 12.5px;
+    line-height: 1.85;
+    pointer-events: none;
+  }
+  #hud .title {
+    font-size: 10.5px;
+    letter-spacing: .16em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  #hud .row { display: flex; justify-content: space-between; gap: 16px; }
+  #hud .row span { color: var(--muted); }
+  #hud .row b {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+  #hud .sep { height: 1px; background: var(--line); margin: 6px 0; }
+  #hud .ok { color: #7fe6a8; }
+  #hud .warn { color: #ffb86b; }
+
+  /* ---------- 控制面板 ---------- */
+  #panel {
+    position: fixed;
+    top: 16px;
+    right: 18px;
+    width: 272px;
+    max-height: calc(100vh - 150px);
+    overflow-y: auto;
+    padding: 17px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+  }
+  #panel h1 { margin: 0 0 3px; font-size: 15px; letter-spacing: .02em; }
+  #panel .sub { margin: 0 0 15px; font-size: 11.5px; color: var(--muted); }
+
+  .ctrl { margin-bottom: 13px; }
+  .ctrl .lab {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12.5px;
+    margin-bottom: 6px;
+    color: var(--muted);
+  }
+  .ctrl .lab b {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .ctrl input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+
+  .btns { display: flex; gap: 8px; margin: 14px 0 12px; }
+  .btns-zoom { margin: 8px 0 0; }
+
+  .sec {
+    margin: 15px 0 8px;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .vpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pad { padding: 7px 0; font-size: 13px; line-height: 1; }
+  .pad.small { font-size: 11px; }
+  .pad-void {
+    border: 1px dashed var(--line);
+    border-radius: 9px;
+    background: transparent;
+  }
+  button {
+    flex: 1;
+    padding: 9px 0;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text);
+    background: rgba(90, 209, 255, 0.1);
+    border: 1px solid rgba(90, 209, 255, 0.32);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: .15s;
+  }
+  button:hover { background: rgba(90, 209, 255, 0.2); }
+  button:active { transform: translateY(1px); }
+
+  .checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px 14px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .checks input { accent-color: var(--accent); cursor: pointer; }
+
+  .formula {
+    margin: 13px 0 0;
+    padding: 9px 11px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: #9fd8f2;
+  }
+
+  .tip {
+    margin: 11px 0 0;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+  .tip b { color: var(--text); font-weight: 600; }
+
+  @media (max-width: 1100px) {
+    #dock { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .dock-btns { grid-column: span 3; }
+    .dock-btns button { flex: 1; }
+  }
+  @media (max-width: 720px) {
+    #panel { width: 236px; padding: 13px; top: 10px; right: 10px; }
+    #hud { font-size: 11.5px; min-width: 0; padding: 10px 12px; top: 10px; left: 10px; }
+    #dock { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding: 10px 12px 12px; }
+    .dock-btns { grid-column: span 2; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+
+<div id="hud">
+  <div class="title">Real-time State</div>
+  <div class="row"><span>上摆角 θ₁</span><b id="hTh1">—</b></div>
+  <div class="row"><span>下摆角 θ₂</span><b id="hTh2">—</b></div>
+  <div class="row"><span>角速度 ω₁</span><b id="hW1">—</b></div>
+  <div class="row"><span>角速度 ω₂</span><b id="hW2">—</b></div>
+  <div class="sep"></div>
+  <div class="row"><span>总能量 E</span><b id="hE">—</b></div>
+  <div class="row"><span>初始能量 E₀</span><b id="hE0">—</b></div>
+  <div class="row"><span>能量漂移 ΔE/E₀</span><b id="hDrift">—</b></div>
+  <div class="sep"></div>
+  <div class="row"><span>影子分离</span><b id="hSep">—</b></div>
+  <div class="row"><span>运行时间</span><b id="hTime">—</b></div>
+  <div class="row"><span>镜头缩放</span><b id="hZoom">—</b></div>
+  <div class="row"><span>镜头位置</span><b id="hCam">—</b></div>
+</div>
+
+<div id="panel">
+  <h1>双摆模拟器</h1>
+  <p class="sub">Double Pendulum · RK4 积分 · 混沌</p>
+
+  <div class="ctrl">
+    <div class="lab"><span>上摆初始角 θ₁₀</span><b id="vA1">120°</b></div>
+    <input type="range" id="sA1" min="-180" max="180" step="1" value="120" />
+  </div>
+
+  <div class="ctrl">
+    <div class="lab"><span>下摆初始角 θ₂₀</span><b id="vA2">120°</b></div>
+    <input type="range" id="sA2" min="-180" max="180" step="1" value="120" />
+  </div>
+
+  <div class="ctrl">
+    <div class="lab"><span>拖尾长度</span><b id="vTrail">320 点</b></div>
+    <input type="range" id="sTrail" min="40" max="700" step="10" value="320" />
+  </div>
+
+  <div class="btns">
+    <button id="bView">复位视角 (F)</button>
+  </div>
+
+  <p class="sec">视角控制</p>
+  <div class="vpad">
+    <div class="pad-void"></div>
+    <button class="pad" id="pUp">↑</button>
+    <div class="pad-void"></div>
+    <button class="pad" id="pLeft">←</button>
+    <button class="pad small" id="pReset">复位</button>
+    <button class="pad" id="pRight">→</button>
+    <div class="pad-void"></div>
+    <button class="pad" id="pDown">↓</button>
+    <div class="pad-void"></div>
+  </div>
+  <div class="btns btns-zoom">
+    <button id="bZoomOut">缩小 −</button>
+    <button id="bZoomIn">放大 ＋</button>
+  </div>
+
+  <p class="sec">显示选项</p>
+  <div class="checks">
+    <label><input type="checkbox" id="cTrail" checked />彩虹拖尾</label>
+    <label><input type="checkbox" id="cGuide" checked />辅助显示</label>
+    <label><input type="checkbox" id="cGhost" checked />混沌影子</label>
+  </div>
+
+  <p class="formula">
+    Δ = θ₁ − θ₂, &nbsp; D = 2m₁ + m₂ − m₂·cos2Δ<Br />
+    α₁ = [ −g(2m₁+m₂)sinθ₁ − m₂g·sin(θ₁−2θ₂)
+    − 2m₂·sinΔ·(ω₂²L₂ + ω₁²L₁·cosΔ) ] / (L₁·D)<br />
+    α₂ = [ 2·sinΔ·( ω₁²L₁(m₁+m₂) + g(m₁+m₂)cosθ₁
+    + ω₂²L₂m₂·cosΔ ) ] / (L₂·D)
+  </p>
+
+  <p class="tip">
+    拖动<b>任一摆球</b> → 设定初始角，松手即从静止释放<br />
+    拖动<b>空白处</b> → 平移视角 · <b>滚轮</b>/双指 → 缩放<br />
+    空格暂停 · R 重置 · F 复位视角<br />
+    <b>混沌影子</b>：初值仅差 10⁻³ rad 的"孪生"双摆，
+    可直观看到轨迹随时间指数分离
+  </p>
+</div>
+
+<!-- ===== 底部参数控制栏：拖动即时生效 ===== -->
+<div id="dock">
+  <div class="sl">
+    <div class="lab"><span>上摆长 L₁</span><b id="vL1">140 <span class="unit">px</span></b></div>
+    <input type="range" id="sL1" min="80" max="320" step="1" value="140" />
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>下摆长 L₂</span><b id="vL2">140 <span class="unit">px</span></b></div>
+    <input type="range" id="sL2" min="80" max="320" step="1" value="140" />
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>上球质量 m₁</span><b id="vM1">1.00 <span class="unit">kg</span></b></div>
+    <input type="range" id="sM1" min="0.2" max="5" step="0.1" value="1" />
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>下球质量 m₂</span><b id="vM2">1.00 <span class="unit">kg</span></b></div>
+    <input type="range" id="sM2" min="0.2" max="5" step="0.1" value="1" />
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>重力 g</span><b id="vG">9.80 <span class="unit">m/s²</span></b></div>
+    <input type="range" id="sG" min="1" max="25" step="0.1" value="9.8" />
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>阻尼 k</span><b id="vK">0.000</b></div>
+    <input type="range" id="sK" min="0" max="0.05" step="0.001" value="0" />
+  </div>
+
+  <div class="dock-btns">
+    <button id="bReset">重置</button>
+    <button id="bPause">暂停</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============================================================
+   * 0. 画布与 DPR 适配
+   * ========================================================== */
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 0;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = cv.clientWidth;
+    H = cv.clientHeight;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // 之后一律用 CSS 像素坐标绘制
+  }
+
+  /* ============================================================
+   * 1. 物理常量与状态
+   * ------------------------------------------------------------
+   * 与单摆一致：摆长以像素输入，靠 PPM 折算成米再代入国际单位制的
+   * 运动方程，否则 g=9.8 配上 140"米"的摆长会得到慢到失真的结果。
+   * ========================================================== */
+  const PPM = 100;            // pixels per meter
+  const RAD = Math.PI / 180;
+  const TAU = Math.PI * 2;
+
+  const DEFAULTS = {
+    L1px: 140, L2px: 140,     // 两段摆长（像素）
+    m1: 1.0, m2: 1.0,         // 两个摆球质量（kg）
+    g: 9.8,                   // 重力加速度（m/s²）
+    th1_0: 120 * RAD,         // 上摆初始角
+    th2_0: 120 * RAD,         // 下摆初始角（相对竖直方向的绝对角度）
+    k: 0.0,                   // 线性阻尼系数
+    trailLen: 320             // 拖尾采样点数
+  };
+
+  const P = Object.assign({}, DEFAULTS);
+
+  /* 状态向量统一用定长数组，便于 RK4 整体运算：
+   *   Y = [ θ₁, ω₁, θ₂, ω₂ ]                                     */
+  const Y = [P.th1_0, 0, P.th2_0, 0];
+  const S = { t: 0 };         // 模拟时间（s）
+
+  /* 混沌影子：与主摆仅差 GHOST_EPS 的"孪生"双摆，用来演示初值敏感性 */
+  const GHOST_EPS = 1e-3;
+  const Ys = [0, 0, 0, 0];
+  let showGhost = true;
+
+  let paused = false;
+  let showTrail = true;
+  let showGuide = true;
+  let E0 = 0;                 // 初始总能量，用于衡量数值漂移
+
+  const L1m = () => P.L1px / PPM;
+  const L2m = () => P.L2px / PPM;
+
+  /* ------------------------------------------------------------
+   * 双摆运动方程（由拉格朗日量导出）
+   *
+   *   T = ½m₁L₁²ω₁² + ½m₂(L₁²ω₁² + L₂²ω₂² + 2L₁L₂ω₁ω₂·cosΔ)
+   *   V = −g[(m₁+m₂)L₁cosθ₁ + m₂L₂cosθ₂]        (Δ = θ₁ − θ₂)
+   *
+   * 解出耦合的角加速度（分母恒正，见下方说明）：
+   *   D  = 2m₁ + m₂ − m₂·cos(2Δ)
+   *   α₁ = [ −g(2m₁+m₂)sinθ₁ − m₂g·sin(θ₁−2θ₂)
+   *          − 2m₂·sinΔ·(ω₂²L₂ + ω₁²L₁·cosΔ) ] / (L₁·D)
+   *   α₂ = [ 2·sinΔ·( ω₁²L₁(m₁+m₂) + g(m₁+m₂)cosθ₁
+   *          + ω₂²L₂m₂·cosΔ ) ] / (L₂·D)
+   *
+   * 数值安全性：D = 2m₁ + m₂(1 − cos2Δ) ≥ 2m₁ > 0，
+   * 只要 m₁ > 0（滑块下限 0.2kg），分母永远不会趋零，
+   * 不存在单摆那种需要担心的除法奇点。
+   *
+   * 退化检验：令 m₂ → 0，则 D → 2m₁，α₁ → −g·sinθ₁/L₁，
+   * 正好回到单摆方程 —— 可作为公式正确性的旁证。
+   * ------------------------------------------------------------ */
+  function derivs(th1, w1, th2, w2, out) {
+    const L1 = L1m(), L2 = L2m();
+    const m1 = P.m1, m2 = P.m2, g = P.g;
+
+    const d = th1 - th2;
+    const sd = Math.sin(d), cd = Math.cos(d);
+    const D = 2 * m1 + m2 - m2 * Math.cos(2 * d);   // 恒 ≥ 2m₁ > 0
+
+    const a1 = (-g * (2 * m1 + m2) * Math.sin(th1)
+                - m2 * g * Math.sin(th1 - 2 * th2)
+                - 2 * sd * m2 * (w2 * w2 * L2 + w1 * w1 * L1 * cd)) / (L1 * D);
+
+    const a2 = (2 * sd * (w1 * w1 * L1 * (m1 + m2)
+                + g * (m1 + m2) * Math.cos(th1)
+                + w2 * w2 * L2 * m2 * cd)) / (L2 * D);
+
+    out[0] = w1;
+    out[1] = a1 - P.k * w1;      // 线性阻尼：与角速度反向
+    out[2] = w2;
+    out[3] = a2 - P.k * w2;
+    return out;
+  }
+
+  /* ------------------------------------------------------------
+   * 经典四阶 Runge-Kutta
+   *
+   *   k₁ = f(y)
+   *   k₂ = f(y + h/2·k₁)
+   *   k₃ = f(y + h/2·k₂)
+   *   k₄ = f(y + h·k₃)
+   *   y ← y + h/6·(k₁ + 2k₂ + 2k₃ + k₄)
+   *
+   * 局部截断误差 O(h⁵)。双摆是混沌系统，任何误差都会被指数放大，
+   * 但 RK4 把"每步误差"压到极低，使得长时间运行仍然能量守恒、
+   * 不出现数值发散（HUD 中的 ΔE/E₀ 就是这项指标）。
+   * ------------------------------------------------------------ */
+  const k1 = [0, 0, 0, 0], k2 = [0, 0, 0, 0],
+        k3 = [0, 0, 0, 0], k4 = [0, 0, 0, 0];
+
+  function rk4(y, h) {
+    derivs(y[0], y[1], y[2], y[3], k1);
+    derivs(y[0] + h / 2 * k1[0], y[1] + h / 2 * k1[1],
+           y[2] + h / 2 * k1[2], y[3] + h / 2 * k1[3], k2);
+    derivs(y[0] + h / 2 * k2[0], y[1] + h / 2 * k2[1],
+           y[2] + h / 2 * k2[2], y[3] + h / 2 * k2[3], k3);
+    derivs(y[0] + h * k3[0], y[1] + h * k3[1],
+           y[2] + h * k3[2], y[3] + h * k3[3], k4);
+
+    const c = h / 6;
+    for (let i = 0; i < 4; i++) {
+      y[i] += c * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+    }
+  }
+
+  /** 总机械能 E = T + V（用于验证积分器是否守恒） */
+  function energy(y) {
+    const L1 = L1m(), L2 = L2m();
+    const m1 = P.m1, m2 = P.m2, g = P.g;
+    const th1 = y[0], w1 = y[1], th2 = y[2], w2 = y[3];
+
+    const v1sq = L1 * L1 * w1 * w1;
+    const v2sq = L1 * L1 * w1 * w1 + L2 * L2 * w2 * w2
+               + 2 * L1 * L2 * w1 * w2 * Math.cos(th1 - th2);
+
+    const T = 0.5 * m1 * v1sq + 0.5 * m2 * v2sq;
+    const V = -g * ((m1 + m2) * L1 * Math.cos(th1) + m2 * L2 * Math.cos(th2));
+    return T + V;
+  }
+
+  /* 角度归一化到 (−π, π]。
+   * 双摆会连续翻转，θ 若不处理会累积到成百上千弧度，
+   * 使 sin/cos 的有效精度下降。方程只依赖 sin/cos 与 Δ = θ₁−θ₂，
+   * 而整体减去 2π 的整数倍时 Δ 只差 2π 的整数倍，sin/cos 完全不变，
+   * 因此归一化对物理无影响，却能长期保持数值精度。 */
+  function wrapPi(a) {
+    const r = (a + Math.PI) % TAU;
+    return (r < 0 ? r + TAU : r) - Math.PI;
+  }
+
+  /* ============================================================
+   * 2. 可移动相机与几何位置
+   * ------------------------------------------------------------
+   * 世界坐标系：支点固定在原点 (0,0)，y 轴向下为正。
+   *   screen = (world − cam) × zoom + 屏幕中心
+   *   world  = (screen − 屏幕中心) ÷ zoom + cam
+   * ========================================================== */
+  const cam = { x: 0, y: 0, zoom: 1 };
+  const ZOOM_MIN = 0.2, ZOOM_MAX = 4;
+  const PIVOT_RATIO = 0.5;    // 双摆会向上翻转，支点居中才能留出上下空间
+
+  function toWorld(sx, sy) {
+    return { x: (sx - W / 2) / cam.zoom + cam.x,
+             y: (sy - H / 2) / cam.zoom + cam.y };
+  }
+  function beginWorld() {
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(cam.zoom, cam.zoom);
+    ctx.translate(-cam.x, -cam.y);
+  }
+  function endWorld() { ctx.restore(); }
+
+  function resetView() {
+    cam.zoom = 1;
+    cam.x = 0;
+    cam.y = (H / 2 - PIVOT_RATIO * H) / cam.zoom;
+  }
+
+  /** 窗口尺寸变化时保持视点相对位置，避免支点/画面漂移 */
+  function handleResize() {
+    if (W <= 0 || H <= 0) { resize(); resetView(); return; }
+    const rx = (W / 2 - cam.x * cam.zoom) / W;
+    const ry = (H / 2 - cam.y * cam.zoom) / H;
+    resize();
+    cam.x = (W / 2 - rx * W) / cam.zoom;
+    cam.y = (H / 2 - ry * H) / cam.zoom;
+  }
+
+  function zoomAt(sx, sy, factor) {
+    const before = toWorld(sx, sy);
+    cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.zoom * factor));
+    const after = toWorld(sx, sy);
+    cam.x += before.x - after.x;
+    cam.y += before.y - after.y;
+  }
+
+  /** 两个铰点的世界坐标（像素） */
+  function joints(y) {
+    const x1 = P.L1px * Math.sin(y[0]), y1 = P.L1px * Math.cos(y[0]);
+    return { x1: x1, y1: y1,
+             x2: x1 + P.L2px * Math.sin(y[2]),
+             y2: y1 + P.L2px * Math.cos(y[2]) };
+  }
+
+  /** 摆球半径随质量的立方根变化（等密度球的直觉） */
+  const bobR = m => Math.max(7, 10 * Math.cbrt(Math.max(m, 0.05)));
+
+  /* ============================================================
+   * 3. 拖尾：彩虹渐变 + 衰减
+   * ------------------------------------------------------------
+   * 存的是下摆球的历史世界坐标。绘制时：
+   *   1) 光晕层 —— 整条路径一次描边，两层不同粗细，营造柔光；
+   *   2) 彩虹层 —— 逐段渐变，色相沿轨迹推进、透明度与线宽
+   *      随"新旧程度"二次衰减，越靠近球头越亮越粗。
+   * 合成模式用 'lighter'（加法混合），重叠处自然叠出亮核。
+   * ========================================================== */
+  const trail = [];
+  const HUE_SPAN = 150;       // 色相沿拖尾推进的跨度（度）
+  const HUE_DRIFT = 42;       // 色相随时间流动的速度（度/秒）
+  let hueBase = 200;
+
+  function drawTrail() {
+    const n = trail.length;
+    if (!showTrail || n < 2) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // ---- 光晕层：整条路径两次描边，开销恒定（仅 2 次 stroke） ----
+    ctx.beginPath();
+    ctx.moveTo(trail[0].x, trail[0].y);
+    for (let i = 1; i < n; i++) ctx.lineTo(trail[i].x, trail[i].y);
+
+    const midHue = (hueBase + 0.5 * HUE_SPAN) % 360;
+    ctx.strokeStyle = 'hsla(' + midHue.toFixed(0) + ', 100%, 60%, 0.085)';
+    ctx.lineWidth = 10 / cam.zoom;
+    ctx.stroke();
+    ctx.strokeStyle = 'hsla(' + midHue.toFixed(0) + ', 100%, 66%, 0.13)';
+    ctx.lineWidth = 4.5 / cam.zoom;
+    ctx.stroke();
+
+    // ---- 彩虹层：逐段渐变 ----
+    const denom = n - 1;
+    for (let i = 1; i < n; i++) {
+      const t = i / denom;                      // 0 = 最旧，1 = 最新
+      const hue = (hueBase + t * HUE_SPAN) % 360;
+      const alpha = 0.05 + 0.8 * t * t;         // 二次衰减，尾端更含蓄
+      const light = 56 + 16 * t;
+      ctx.strokeStyle = 'hsla(' + hue.toFixed(1) + ', 96%, ' + light.toFixed(1) + '%, ' + alpha.toFixed(3) + ')';
+      ctx.lineWidth = (0.7 + 3.0 * t) / cam.zoom;   // 除以 zoom：屏幕上粗细恒定
+      ctx.beginPath();
+      ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+      ctx.lineTo(trail[i].x, trail[i].y);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /* ============================================================
+   * 4. 绘制
+   * ========================================================== */
+  function drawBackground() {
+    ctx.fillStyle = '#14141a';
+    ctx.fillRect(0, 0, W, H);
+
+    const grd = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.6);
+    grd.addColorStop(0, 'rgba(90, 209, 255, 0.05)');
+    grd.addColorStop(1, 'rgba(20, 20, 26, 0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+
+    drawGrid();
+  }
+
+  function drawGrid() {
+    const halfW = W / (2 * cam.zoom) + 1, halfH = H / (2 * cam.zoom) + 1;
+    const left = cam.x - halfW, right = cam.x + halfW;
+    const top = cam.y - halfH, bottom = cam.y + halfH;
+
+    let step = 40;
+    while ((right - left) / step > 140) step *= 2;   // 视野很大时自动放大间距
+
+    beginWorld();
+    ctx.lineWidth = 1 / cam.zoom;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.beginPath();
+    for (let x = Math.floor(left / step) * step; x <= right; x += step) {
+      ctx.moveTo(x, top); ctx.lineTo(x, bottom);
+    }
+    for (let y = Math.floor(top / step) * step; y <= bottom; y += step) {
+      ctx.moveTo(left, y); ctx.lineTo(right, y);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(90, 209, 255, 0.12)';   // 支点所在的水平基准线
+    ctx.beginPath();
+    ctx.moveTo(left, 0); ctx.lineTo(right, 0);
+    ctx.stroke();
+    endWorld();
+  }
+
+  function drawGuide(j) {
+    if (!showGuide) return;
+    const reach = P.L1px + P.L2px;
+
+    ctx.save();
+    ctx.setLineDash([4, 6]);
+    ctx.lineWidth = 1;
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';   // 竖直平衡位置
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(0, reach + 30);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 190, 120, 0.22)';   // 初始角度参考线
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(P.L1px * Math.sin(P.th1_0), P.L1px * Math.cos(P.th1_0));
+    ctx.lineTo(P.L1px * Math.sin(P.th1_0) + P.L2px * Math.sin(P.th2_0),
+               P.L1px * Math.cos(P.th1_0) + P.L2px * Math.cos(P.th2_0));
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';   // 两段摆的可达圆弧
+    ctx.beginPath();
+    ctx.arc(0, 0, P.L1px, 0, TAU);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(j.x1, j.y1, P.L2px, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** 混沌影子：低饱和暗色，只画杆与球，不画拖尾 */
+  function drawGhost() {
+    if (!showGhost) return;
+    const g = joints(Ys);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(196, 132, 255, 0.34)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(g.x1, g.y1); ctx.lineTo(g.x2, g.y2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(196, 132, 255, 0.3)';
+    ctx.beginPath(); ctx.arc(g.x1, g.y1, bobR(P.m1) * 0.62, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(g.x2, g.y2, bobR(P.m2) * 0.62, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRig(j) {
+    // 支架横梁与斜撑
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-78, 0); ctx.lineTo(78, 0);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-30, 0); ctx.lineTo(-46, -26);
+    ctx.moveTo(30, 0); ctx.lineTo(46, -26);
+    ctx.stroke();
+    ctx.restore();
+
+    // 两根摆杆
+    ctx.save();
+    ctx.strokeStyle = 'rgba(210, 230, 245, 0.55)';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(j.x1, j.y1); ctx.lineTo(j.x2, j.y2);
+    ctx.stroke();
+    ctx.restore();
+
+    // 支点
+    ctx.save();
+    ctx.fillStyle = '#c9d6e2';
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /** 上摆球：冷色金属质感 */
+  function drawBob1(j) {
+    const r = bobR(P.m1);
+    const g = ctx.createRadialGradient(j.x1 - r * 0.32, j.y1 - r * 0.38, r * 0.12, j.x1, j.y1, r);
+    g.addColorStop(0, '#f2fbff');
+    g.addColorStop(0.38, '#7fdcff');
+    g.addColorStop(1, '#1f6f9c');
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(90, 209, 255, 0.85)';
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(j.x1, j.y1, r, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.beginPath(); ctx.arc(j.x1 - r * 0.3, j.y1 - r * 0.36, r * 0.16, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /** 下摆球：彩虹光晕，与拖尾头部同色系 */
+  function drawBob2(j) {
+    const r = bobR(P.m2);
+    const hue = (hueBase + HUE_SPAN) % 360;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = 'hsla(' + hue.toFixed(0) + ', 100%, 65%, 0.9)';
+    ctx.shadowBlur = 26;
+    ctx.fillStyle = 'hsla(' + hue.toFixed(0) + ', 100%, 62%, 0.45)';
+    ctx.beginPath(); ctx.arc(j.x2, j.y2, r * 0.92, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    const g = ctx.createRadialGradient(j.x2 - r * 0.32, j.y2 - r * 0.38, r * 0.12, j.x2, j.y2, r);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.34, 'hsl(' + hue.toFixed(0) + ', 100%, 74%)');
+    g.addColorStop(1, 'hsl(' + ((hue + 40) % 360).toFixed(0) + ', 82%, 42%)');
+
+    ctx.save();
+    ctx.shadowColor = 'hsla(' + hue.toFixed(0) + ', 100%, 66%, 0.95)';
+    ctx.shadowBlur = 22;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(j.x2, j.y2, r, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath(); ctx.arc(j.x2 - r * 0.3, j.y2 - r * 0.36, r * 0.16, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /** 速度矢量（辅助显示开启时才画） */
+  function drawVelocity(j) {
+    if (!showGuide) return;
+    const L1 = P.L1px, L2 = P.L2px;
+    const w1 = Y[1], w2 = Y[3];
+
+    // 位置对时间求导：x = L₁sinθ₁ + L₂sinθ₂, y = L₁cosθ₁ + L₂cosθ₂
+    const vx1 = L1 * w1 * Math.cos(Y[0]), vy1 = -L1 * w1 * Math.sin(Y[0]);
+    const vx2 = vx1 + L2 * w2 * Math.cos(Y[2]);
+    const vy2 = vy1 - L2 * w2 * Math.sin(Y[2]);
+
+    arrow(j.x1, j.y1, vx1, vy1);
+    arrow(j.x2, j.y2, vx2, vy2);
+  }
+
+  function arrow(x, y, vx, vy) {
+    const sp = Math.hypot(vx, vy);
+    if (sp < 12) return;                       // 太慢就不画，避免抖动
+    const len = Math.min(sp * 0.11, 130);
+    const ux = vx / sp, uy = vy / sp;
+    const ex = x + ux * len, ey = y + uy * len;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 175, 90, 0.75)';
+    ctx.fillStyle = 'rgba(255, 175, 90, 0.75)';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y); ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    const a = Math.atan2(uy, ux);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 8 * Math.cos(a - 0.4), ey - 8 * Math.sin(a - 0.4));
+    ctx.lineTo(ex - 8 * Math.cos(a + 0.4), ey - 8 * Math.sin(a + 0.4));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function draw() {
+    const j = joints(Y);
+    drawBackground();
+    beginWorld();
+    drawGuide(j);
+    drawGhost();
+    drawTrail();
+    drawRig(j);
+    drawVelocity(j);
+    drawBob1(j);
+    drawBob2(j);
+    endWorld();
+  }
+
+  /* ============================================================
+   * 5. HUD
+   * ========================================================== */
+  const el = id => document.getElementById(id);
+
+  function updateHUD() {
+    const E = energy(Y);
+    const drift = (E - E0) / Math.max(Math.abs(E0), 1e-6);
+    const driftFinite = Number.isFinite(drift);
+
+    el('hTh1').textContent = (Y[0] / RAD).toFixed(1) + '°';
+    el('hTh2').textContent = (Y[2] / RAD).toFixed(1) + '°';
+    el('hW1').textContent = Y[1].toFixed(2) + ' rad/s';
+    el('hW2').textContent = Y[3].toFixed(2) + ' rad/s';
+    el('hE').textContent = E.toFixed(4) + ' J';
+    el('hE0').textContent = E0.toFixed(4) + ' J';
+    el('hTime').textContent = S.t.toFixed(1) + ' s';
+    el('hZoom').textContent = cam.zoom.toFixed(2) + '×';
+    el('hCam').textContent = Math.round(cam.x) + ', ' + Math.round(cam.y);
+
+    // 能量漂移是"有没有数值发散"的直接指标
+    const dEl = el('hDrift');
+    if (driftFinite) {
+      dEl.textContent = (drift >= 0 ? '+' : '') + drift.toExponential(2);
+      // 无阻尼时漂移应≈0；有阻尼时能量本就在耗散，不算发散
+      const ok = P.k === 0 ? Math.abs(drift) < 1e-6 : true;
+      dEl.className = ok ? 'ok' : 'warn';
+    } else {
+      dEl.textContent = '—';
+      dEl.className = 'warn';
+    }
+
+    // 影子与主摆末端的空间分离（米）—— 混沌的直观度量
+    if (showGhost) {
+      const g2 = joints(Ys);
+      const sep = Math.hypot(g2.x2 - joints(Y).x2, g2.y2 - joints(Y).y2) / PPM;
+      el('hSep').textContent = sep < 1e-3
+        ? sep.toExponential(2) + ' m'
+        : sep.toFixed(3) + ' m';
+    } else {
+      el('hSep').textContent = '已关闭';
+    }
+  }
+
+  /* ============================================================
+   * 6. 主循环
+   * ------------------------------------------------------------
+   * 物理以固定子步长推进，与刷新率解耦：
+   *   • 子步 1ms —— RK4 在双摆上的局部误差已远小于 1e-12；
+   *   • 帧 dt 钳制在 50ms —— 切后台回来不会一次性跳变。
+   * ========================================================== */
+  const DT_SUB = 1 / 1000;
+  const MAX_SUB = 200;
+  const SAMPLE_DT = 1 / 120;      // 拖尾采样间隔：与帧率解耦，低帧率也不失真
+
+  let lastTs = null, acc = 0, sampleAcc = 0;
+
+  function frame(ts) {
+    if (lastTs === null) lastTs = ts;
+    let dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    if (dt > 0.05) dt = 0.05;
+
+    if (!paused && dragMode === null) {          // 只有拖摆球时冻结物理
+      acc += dt;
+      let n = Math.floor(acc / DT_SUB);
+      if (n > MAX_SUB) { n = MAX_SUB; acc = 0; } // 卡顿后不追补，避免雪崩
+      else acc -= n * DT_SUB;
+
+      for (let i = 0; i < n; i++) {
+        rk4(Y, DT_SUB);
+        if (showGhost) rk4(Ys, DT_SUB);
+        S.t += DT_SUB;
+
+        Y[0] = wrapPi(Y[0]); Y[2] = wrapPi(Y[2]);
+        if (showGhost) { Ys[0] = wrapPi(Ys[0]); Ys[2] = wrapPi(Ys[2]); }
+
+        // 按固定间隔采样拖尾，保证快慢一致的平滑度
+        sampleAcc += DT_SUB;
+        if (sampleAcc >= SAMPLE_DT) {
+          sampleAcc -= SAMPLE_DT;
+          const j = joints(Y);
+          trail.push({ x: j.x2, y: j.y2 });
+          while (trail.length > P.trailLen) trail.shift();
+        }
+      }
+
+      // 兜底：万一出现非有限值（极端参数/精度意外），立即回到初始状态
+      if (!Number.isFinite(Y[0] + Y[1] + Y[2] + Y[3])) {
+        resetSim();
+      }
+
+      hueBase = (hueBase + dt * HUE_DRIFT) % 360;
+    }
+
+    draw();
+    updateHUD();
+    requestAnimationFrame(frame);
+  }
+
+  /* ============================================================
+   * 7. 交互
+   * ========================================================== */
+  function resetSim() {
+    Y[0] = P.th1_0; Y[1] = 0;
+    Y[2] = P.th2_0; Y[3] = 0;
+    S.t = 0;
+    trail.length = 0;
+    while (trail.length > P.trailLen) trail.shift();
+    E0 = energy(Y);
+    resetGhost();
+    acc = 0; sampleAcc = 0;
+  }
+
+  function resetGhost() {
+    Ys[0] = Y[0] + GHOST_EPS; Ys[1] = Y[1];
+    Ys[2] = Y[2];             Ys[3] = Y[3];
+  }
+
+  /** 完全重置：参数与滑块一起回到出厂值 */
+  function resetAll() {
+    Object.assign(P, DEFAULTS);
+    el('sL1').value = P.L1px;  el('sL2').value = P.L2px;
+    el('sM1').value = P.m1;    el('sM2').value = P.m2;
+    el('sG').value = P.g;      el('sK').value = P.k;
+    el('sA1').value = Math.round(P.th1_0 / RAD);
+    el('sA2').value = Math.round(P.th2_0 / RAD);
+    el('sTrail').value = P.trailLen;
+    syncLabels();
+    resetSim();
+  }
+
+  function syncLabels() {
+    el('vL1').innerHTML = P.L1px + ' <span class="unit">px</span>';
+    el('vL2').innerHTML = P.L2px + ' <span class="unit">px</span>';
+    el('vM1').innerHTML = P.m1.toFixed(2) + ' <span class="unit">kg</span>';
+    el('vM2').innerHTML = P.m2.toFixed(2) + ' <span class="unit">kg</span>';
+    el('vG').innerHTML = P.g.toFixed(2) + ' <span class="unit">m/s²</span>';
+    el('vK').textContent = P.k.toFixed(3);
+    el('vA1').textContent = Math.round(P.th1_0 / RAD) + '°';
+    el('vA2').textContent = Math.round(P.th2_0 / RAD) + '°';
+    el('vTrail').textContent = P.trailLen + ' 点';
+  }
+
+  /* 参数类滑块：改变后需要重设能量基准并清掉旧轨迹 */
+  function onParamChange() {
+    syncLabels();
+    trail.length = 0;
+    E0 = energy(Y);
+    resetGhost();
+  }
+
+  el('sL1').addEventListener('input', e => { P.L1px = +e.target.value; onParamChange(); });
+  el('sL2').addEventListener('input', e => { P.L2px = +e.target.value; onParamChange(); });
+  el('sM1').addEventListener('input', e => { P.m1 = +e.target.value; onParamChange(); });
+  el('sM2').addEventListener('input', e => { P.m2 = +e.target.value; onParamChange(); });
+  el('sG').addEventListener('input',  e => { P.g = +e.target.value; onParamChange(); });
+  el('sK').addEventListener('input',  e => { P.k = +e.target.value; onParamChange(); });
+
+  el('sTrail').addEventListener('input', e => {
+    P.trailLen = +e.target.value;
+    while (trail.length > P.trailLen) trail.shift();
+    syncLabels();
+  });
+
+  /* 初始角度滑块：改动即重新释放 */
+  el('sA1').addEventListener('input', e => { P.th1_0 = (+e.target.value) * RAD; syncLabels(); resetSim(); });
+  el('sA2').addEventListener('input', e => { P.th2_0 = (+e.target.value) * RAD; syncLabels(); resetSim(); });
+
+  el('bReset').addEventListener('click', resetAll);
+  el('bPause').addEventListener('click', togglePause);
+  el('bView').addEventListener('click', resetView);
+
+  function panBy(dx, dy) { cam.x += dx / cam.zoom; cam.y += dy / cam.zoom; }
+  function zoomCenter(f) { zoomAt(W / 2, H / 2, f); }
+
+  el('pUp').addEventListener('click', () => panBy(0, -40));
+  el('pDown').addEventListener('click', () => panBy(0, 40));
+  el('pLeft').addEventListener('click', () => panBy(-40, 0));
+  el('pRight').addEventListener('click', () => panBy(40, 0));
+  el('pReset').addEventListener('click', resetView);
+  el('bZoomIn').addEventListener('click', () => zoomCenter(1.15));
+  el('bZoomOut').addEventListener('click', () => zoomCenter(1 / 1.15));
+
+  el('cTrail').addEventListener('change', e => { showTrail = e.target.checked; trail.length = 0; });
+  el('cGuide').addEventListener('change', e => { showGuide = e.target.checked; });
+  el('cGhost').addEventListener('change', e => {
+    showGhost = e.target.checked;
+    if (showGhost) resetGhost();          // 中途开启时从当前状态重新分叉
+  });
+
+  function togglePause() {
+    paused = !paused;
+    el('bPause').textContent = paused ? '继续' : '暂停';
+  }
+
+  window.addEventListener('keydown', e => {
+    const step = 40;
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    if (e.key === 'r' || e.key === 'R') resetAll();
+    if (e.key === 'f' || e.key === 'F') resetView();
+    if (e.key === '0') resetView();
+    if (e.key === 'ArrowLeft')  { cam.x -= step / cam.zoom; e.preventDefault(); }
+    if (e.key === 'ArrowRight') { cam.x += step / cam.zoom; e.preventDefault(); }
+    if (e.key === 'ArrowUp')    { cam.y -= step / cam.zoom; e.preventDefault(); }
+    if (e.key === 'ArrowDown')  { cam.y += step / cam.zoom; e.preventDefault(); }
+    if (e.key === '+' || e.key === '=') { zoomAt(W / 2, H / 2, 1.15); e.preventDefault(); }
+    if (e.key === '-' || e.key === '_') { zoomAt(W / 2, H / 2, 1 / 1.15); e.preventDefault(); }
+  });
+
+  /* ---- 7.1 指针事件：鼠标 / 触摸 / 触控笔统一处理 ----
+   * move 与 up 绑在 canvas 自身，并在 pointerdown 时 setPointerCapture
+   * 锁定指针 —— 这样指针移出画布、或页面嵌在 iframe（IDE 内嵌预览）中，
+   * 事件也不会被外层吞掉。
+   * ------------------------------------------------------------ */
+  const pointers = new Map();
+  let dragMode = null;        // 'bob1' | 'bob2' | 'pan' | 'pinch' | null
+  let panPrev = null, pinchPrev = 0;
+
+  function pointerPos(ev) {
+    const r = cv.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+  function pinchDistance() {
+    const p = [...pointers.values()];
+    return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  }
+  function pinchCenter() {
+    const p = [...pointers.values()];
+    return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+  }
+
+  /** 命中判定：两个球都可能被抓，取屏幕上更近的那个 */
+  function hitBob(pos) {
+    const j = joints(Y);
+    const w = toWorld(pos.x, pos.y);
+    const d1 = Math.hypot(w.x - j.x1, w.y - j.y1);
+    const d2 = Math.hypot(w.x - j.x2, w.y - j.y2);
+    const r1 = bobR(P.m1) + 14 / cam.zoom;      // 命中半径换算到世界尺度
+    const r2 = bobR(P.m2) + 14 / cam.zoom;
+    const hit1 = d1 < r1, hit2 = d2 < r2;
+    if (hit1 && hit2) return d1 <= d2 ? 'bob1' : 'bob2';
+    if (hit1) return 'bob1';
+    if (hit2) return 'bob2';
+    return null;
+  }
+
+  function onPointerDown(ev) {
+    const pos = pointerPos(ev);
+    pointers.set(ev.pointerId, pos);
+    try { cv.setPointerCapture(ev.pointerId); } catch (err) { /* 环境不支持则忽略 */ }
+    ev.preventDefault();
+
+    if (pointers.size >= 2) { dragMode = 'pinch'; pinchPrev = pinchDistance(); return; }
+
+    const hit = hitBob(pos);
+    if (hit) {
+      dragMode = hit;
+      cv.style.cursor = 'grabbing';
+    } else {
+      dragMode = 'pan';
+      panPrev = pos;
+      cv.style.cursor = 'move';
+    }
+  }
+
+  function onPointerMove(ev) {
+    if (!pointers.has(ev.pointerId)) return;    // 只跟踪按下过的指针
+    const pos = pointerPos(ev);
+    pointers.set(ev.pointerId, pos);
+    ev.preventDefault();
+
+    if (dragMode === 'pinch') {
+      const d = pinchDistance();
+      if (pinchPrev > 0 && d > 0) {
+        const c = pinchCenter();
+        zoomAt(c.x, c.y, d / pinchPrev);
+      }
+      pinchPrev = d;
+      return;
+    }
+
+    if (dragMode === 'bob1' || dragMode === 'bob2') {
+      const w = toWorld(pos.x, pos.y);
+      const j = joints(Y);
+
+      if (dragMode === 'bob1') {
+        // 支点在世界原点，且 x₁ = L₁sinθ₁、y₁ = L₁cosθ₁ ⇒ θ₁ = atan2(wx, wy)
+        Y[0] = Math.atan2(w.x, w.y);
+      } else {
+        // 下摆球在以"上摆球"为圆心、L₂ 为半径的圆上 ⇒ 相对上摆球取角度
+        Y[2] = Math.atan2(w.x - j.x1, w.y - j.y1);
+      }
+
+      Y[1] = 0; Y[3] = 0;                       // 拖动期间静止，松手即从静止释放
+      trail.length = 0;
+      E0 = energy(Y);
+    } else if (dragMode === 'pan') {
+      cam.x -= (pos.x - panPrev.x) / cam.zoom;
+      cam.y -= (pos.y - panPrev.y) / cam.zoom;
+      panPrev = pos;
+    }
+  }
+
+  function onPointerUp(ev) {
+    pointers.delete(ev.pointerId);
+    try {
+      if (cv.hasPointerCapture(ev.pointerId)) cv.releasePointerCapture(ev.pointerId);
+    } catch (err) { /* ignore */ }
+
+    if (pointers.size === 0) {
+      if (dragMode === 'bob1' || dragMode === 'bob2') {
+        Y[1] = 0; Y[3] = 0;                     // 释放：零初速
+        E0 = energy(Y);
+        resetGhost();                           // 影子从新的初值重新分叉
+        acc = 0; sampleAcc = 0;
+      }
+      dragMode = null;
+      panPrev = null;
+      pinchPrev = 0;
+      cv.style.cursor = 'default';
+    } else if (pointers.size === 1 && dragMode === 'pinch') {
+      dragMode = 'pan';                         // 松开一指后转为平移，避免镜头突跳
+      panPrev = [...pointers.values()][0];
+    }
+  }
+
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const pos = pointerPos(e);
+    zoomAt(pos.x, pos.y, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
+
+  cv.addEventListener('pointerdown', onPointerDown);
+  cv.addEventListener('pointermove', onPointerMove);
+  cv.addEventListener('pointerup', onPointerUp);
+  cv.addEventListener('pointercancel', onPointerUp);
+  cv.addEventListener('lostpointercapture', onPointerUp);
+
+  window.addEventListener('resize', handleResize);
+
+  /* ============================================================
+   * 8. 启动
+   * ========================================================== */
+  resize();
+  resetView();
+  syncLabels();
+  E0 = energy(Y);
+  resetGhost();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
