@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>单摆模拟器 · Simple Pendulum</title>
+<style>
+  :root {
+    --bg: #1e1e24;
+    --accent: #5ad1ff;
+    --text: #e6edf3;
+    --muted: #8b95a5;
+    --panel: rgba(20, 22, 28, 0.82);
+    --line: rgba(255, 255, 255, 0.09);
+  }
+
+  * { box-sizing: border-box; }
+
+  /* 纵向布局：画布占满剩余空间，底部控制栏位于文档流中，不会遮挡摆球 */
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    touch-action: none;            /* 交给脚本处理手势，禁止浏览器滚动/缩放干扰 */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+
+  /* ---------- 底部参数控制栏 ---------- */
+  #dock {
+    flex: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    align-items: end;
+    gap: 20px;
+    padding: 15px 24px 17px;
+    background: rgba(16, 18, 24, 0.92);
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+  }
+  #dock .sl { min-width: 0; }
+  #dock .lab {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 7px;
+  }
+  #dock .lab b {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  #dock .lab .unit { color: var(--muted); font-size: 11px; }
+  #dock input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  #dock .hint {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .dock-btns { display: flex; gap: 8px; }
+  .dock-btns button {
+    flex: none;
+    min-width: 82px;
+    padding: 9px 18px;
+  }
+
+  /* ---------- 实时数据 HUD ---------- */
+  #hud {
+    position: fixed;
+    top: 18px;
+    left: 20px;
+    padding: 14px 16px;
+    min-width: 190px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    font-size: 13px;
+    line-height: 1.9;
+    pointer-events: none;
+  }
+  #hud .title {
+    font-size: 11px;
+    letter-spacing: .16em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #hud .row { display: flex; justify-content: space-between; gap: 18px; }
+  #hud .row span { color: var(--muted); }
+  #hud .row b {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+
+  /* ---------- 控制面板 ---------- */
+  #panel {
+    position: fixed;
+    top: 18px;
+    right: 20px;
+    width: 268px;
+    padding: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+  }
+  #panel h1 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    letter-spacing: .02em;
+  }
+  #panel .sub {
+    margin: 0 0 16px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  .ctrl { margin-bottom: 14px; }
+  .ctrl .lab {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12.5px;
+    margin-bottom: 6px;
+    color: var(--muted);
+  }
+  .ctrl .lab b {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .ctrl input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .btns { display: flex; gap: 8px; margin: 16px 0 12px; }
+  .btns-alone { margin-top: -6px; }
+  .btns-zoom { margin: 8px 0 0; }
+
+  /* 视角控制台（方向键 + 缩放），不依赖鼠标手势 */
+  .sec {
+    margin: 16px 0 8px;
+    font-size: 11px;
+    letter-spacing: .12em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .vpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .pad { padding: 7px 0; font-size: 13px; line-height: 1; }
+  .pad.small { font-size: 11px; }
+  .pad-void {
+    border: 1px dashed var(--line);
+    border-radius: 9px;
+    background: transparent;
+  }
+  button {
+    flex: 1;
+    padding: 9px 0;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text);
+    background: rgba(90, 209, 255, 0.1);
+    border: 1px solid rgba(90, 209, 255, 0.32);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: .15s;
+  }
+  button:hover { background: rgba(90, 209, 255, 0.2); }
+  button:active { transform: translateY(1px); }
+
+  .checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .checks input { accent-color: var(--accent); cursor: pointer; }
+
+  .formula {
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: #9fd8f2;
+    text-align: center;
+  }
+
+  .tip {
+    margin: 12px 0 0;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+  .tip b { color: var(--text); font-weight: 600; }
+
+  @media (max-width: 720px) {
+    #panel { width: 232px; padding: 14px; top: 12px; right: 12px; }
+    #hud { font-size: 12px; min-width: 0; padding: 10px 12px; top: 12px; left: 12px; }
+    #dock { grid-template-columns: 1fr 1fr; gap: 12px 14px; padding: 12px 14px 14px; }
+    .dock-btns { grid-column: span 2; }
+    .dock-btns button { flex: 1; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+
+<div id="hud">
+  <div class="title">Real-time State</div>
+  <div class="row"><span>角度 θ</span><b id="hTheta">—</b></div>
+  <div class="row"><span>角速度 ω</span><b id="hOmega">—</b></div>
+  <div class="row"><span>周期 T（理论）</span><b id="hTtheory">—</b></div>
+  <div class="row"><span>周期 T（实测）</span><b id="hTmeas">—</b></div>
+  <div class="row"><span>总能量 E</span><b id="hEnergy">—</b></div>
+  <div class="row"><span>运行时间</span><b id="hTime">—</b></div>
+  <div class="row"><span>镜头缩放</span><b id="hZoom">—</b></div>
+  <div class="row"><span>镜头位置</span><b id="hCam">—</b></div>
+</div>
+
+<div id="panel">
+  <h1>单摆模拟器</h1>
+  <p class="sub">Simple Pendulum · Canvas 2D</p>
+
+  <div class="ctrl">
+    <div class="lab"><span>初始角度 θ₀</span><b id="vAng">45°</b></div>
+    <input type="range" id="sAng" min="-170" max="170" step="1" value="45" />
+  </div>
+
+  <div class="btns btns-alone">
+    <button id="bView">复位视角 (F)</button>
+  </div>
+
+  <p class="sec">视角控制</p>
+  <div class="vpad">
+    <div class="pad-void"></div>
+    <button class="pad" id="pUp">↑</button>
+    <div class="pad-void"></div>
+    <button class="pad" id="pLeft">←</button>
+    <button class="pad small" id="pReset">复位</button>
+    <button class="pad" id="pRight">→</button>
+    <div class="pad-void"></div>
+    <button class="pad" id="pDown">↓</button>
+    <div class="pad-void"></div>
+  </div>
+  <div class="btns btns-zoom">
+    <button id="bZoomOut">缩小 −</button>
+    <button id="bZoomIn">放大 ＋</button>
+  </div>
+
+  <div class="checks">
+    <label><input type="checkbox" id="cTrail" checked />运动轨迹</label>
+    <label><input type="checkbox" id="cGuide" checked />辅助显示</label>
+  </div>
+
+  <p class="formula">α = −g/L · sin(θ) − k · ω</p>
+
+  <p class="tip">
+    拖动<b>摆球</b> → 设定摆角<br />
+    拖动<b>空白处</b> → 平移视角<br />
+    <b>滚轮</b> / 双指 → 缩放视角<br />
+    <b>方向键</b>平移 · <b>+ −</b> 缩放<br />
+    空格暂停 · R 重置 · F 复位视角
+  </p>
+</div>
+
+<!-- ===== 底部参数控制栏：拖动即时生效 ===== -->
+<div id="dock">
+  <div class="sl">
+    <div class="lab"><span>摆长 L</span><b id="vLen">200 <span class="unit">px</span></b></div>
+    <input type="range" id="sLen" min="100" max="400" step="1" value="200" />
+    <div class="hint"><span>100</span><span>400</span></div>
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>重力 g</span><b id="vG">9.80 <span class="unit">m/s²</span></b></div>
+    <input type="range" id="sG" min="1" max="25" step="0.1" value="9.8" />
+    <div class="hint"><span>1</span><span>25</span></div>
+  </div>
+
+  <div class="sl">
+    <div class="lab"><span>阻尼 k</span><b id="vK">0.000</b></div>
+    <input type="range" id="sK" min="0" max="0.1" step="0.001" value="0" />
+    <div class="hint"><span>0（无阻尼）</span><span>0.1</span></div>
+  </div>
+
+  <div class="dock-btns">
+    <button id="bReset">重置</button>
+    <button id="bPause">暂停</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============================================================
+   * 0. 画布与 DPR 适配
+   * ========================================================== */
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 0;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = cv.clientWidth;
+    H = cv.clientHeight;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // 之后一律用 CSS 像素坐标绘制
+  }
+
+  /* ============================================================
+   * 1. 物理常量与状态
+   * ------------------------------------------------------------
+   * 单位换算（关键）：
+   *   摆长 L 以「像素」为单位输入，而 g = 9.8 m/s² 是国际单位。
+   *   若把 200px 直接当作 200m 代入 α = -g/L，角加速度只有 0.049，
+   *   周期会被放大到约 28 秒。因此这里用 PPM 把像素折算成米：
+   *        L_m = L_px / PPM        （取 100 px/m → L = 2 m）
+   *   于是 ω₀ = √(g/L_m) = √(9.8/2) ≈ 2.21 rad/s，周期 T ≈ 2.84 s，
+   *   这才是真实世界里一根 2 米长单摆的手感。
+   * ========================================================== */
+  const PPM = 100;            // pixels per meter
+  const RAD = Math.PI / 180;
+  const TAU = Math.PI * 2;
+
+  const DEFAULTS = {          // 出厂默认值，「重置」按钮据此还原
+    Lpx: 200,                 // 摆长（像素）
+    g: 9.8,                   // 重力加速度
+    theta0: 45 * RAD,         // 初始摆角 45°
+    k: 0.0                    // 阻尼系数
+  };
+
+  const P = Object.assign({}, DEFAULTS);   // 当前生效的参数（滑块实时改写）
+
+  const S = {                 // 运动状态
+    theta: P.theta0,          // 摆角 θ（rad，竖直向下为 0）
+    omega: 0,                 // 角速度 ω（rad/s）
+    t: 0                      // 模拟时间（s）
+  };
+
+  let paused = false;
+  let dragMode = null;      // 'bob' 拖摆球 | 'pan' 平移镜头 | 'pinch' 双指缩放 | null 空闲
+  let showTrail = true;
+  let showGuide = true;
+  const trail = [];
+  const TRAIL_MAX = 260;
+
+  /** 摆长（米） */
+  const Lm = () => P.Lpx / PPM;
+
+  /* ------------------------------------------------------------
+   * 核心物理：单摆运动方程
+   *
+   *     α = -g / L · sin(θ) - k · ω
+   *
+   * 第一项来自重力矩（恢复力，非线性，保留 sin 而非小角近似 θ）
+   * 第二项为线性阻尼，正比于角速度、方向与运动相反
+   * ------------------------------------------------------------ */
+  function angularAccel(theta, omega) {
+    return -(P.g / Lm()) * Math.sin(theta) - P.k * omega;
+  }
+
+  /* 积分器：半隐式欧拉（symplectic Euler）
+   * 先用新 α 更新 ω，再用新 ω 更新 θ —— 对保守系统能量漂移有界，
+   * 配合 1/600 s 的子步长，长时间运行依然稳定。 */
+  const DT_SUB = 1 / 600;
+
+  function integrate(dt) {
+    const alpha = angularAccel(S.theta, S.omega);
+    S.omega += alpha * dt;
+    S.theta += S.omega * dt;
+    S.t += dt;
+  }
+
+  /* ============================================================
+   * 2. 可移动相机（镜头）与几何位置
+   * ------------------------------------------------------------
+   * 世界坐标系：支点固定在原点 (0, 0)，y 轴向下为正。
+   * 屏幕坐标与世界坐标的换算：
+   *
+   *     screen = (world − cam) × zoom + 屏幕中心
+   *     world  = (screen − 屏幕中心) ÷ zoom + cam
+   *
+   * cam 表示「屏幕正中心」所对准的那个世界坐标点，zoom 为缩放倍率。
+   * 平移镜头 = 改变 cam；缩放镜头 = 改变 zoom。
+   * ========================================================== */
+  const cam = { x: 0, y: 0, zoom: 1 };
+  const ZOOM_MIN = 0.25, ZOOM_MAX = 4;
+
+  /** 屏幕坐标 → 世界坐标（命中判定、拖拽都依赖它） */
+  function toWorld(sx, sy) {
+    return {
+      x: (sx - W / 2) / cam.zoom + cam.x,
+      y: (sy - H / 2) / cam.zoom + cam.y
+    };
+  }
+
+  /** 把画笔切换到世界坐标系，之后所有绘制都写世界坐标 */
+  function beginWorld() {
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(cam.zoom, cam.zoom);
+    ctx.translate(-cam.x, -cam.y);
+  }
+
+  function endWorld() {
+    ctx.restore();
+  }
+
+  const PIVOT_RATIO = 0.28;   // 复位后支点距屏幕顶部的相对高度
+
+  /** 视角复位：整套装置重新居中 */
+  function resetView() {
+    cam.zoom = 1;
+    cam.x = 0;
+    // 支点在世界 y=0：screen_y = (0 − cam.y)·zoom + H/2 = PIVOT_RATIO·H
+    cam.y = (H / 2 - PIVOT_RATIO * H) / cam.zoom;
+  }
+
+  /** 窗口尺寸变化：保持视点的相对位置
+   * ------------------------------------------------------------
+   * 此前 resize 只重算画布尺寸，cam.y 仍沿用窗口变化前算出的旧值，
+   * 于是窗口变矮时支点会从屏幕 28% 处漂到 11.5% 处（甚至可能移出画面）。
+   * 这里先记下支点当前的相对屏幕坐标，resize 后按同一比例还原。 */
+  function handleResize() {
+    if (W <= 0 || H <= 0) { resize(); resetView(); return; }
+    const rx = (W / 2 - cam.x * cam.zoom) / W;
+    const ry = (H / 2 - cam.y * cam.zoom) / H;
+    resize();
+    cam.x = (W / 2 - rx * W) / cam.zoom;
+    cam.y = (H / 2 - ry * H) / cam.zoom;
+  }
+
+  /** 以屏幕点 (sx, sy) 为锚点缩放，保证光标下的物体不发生位移 */
+  function zoomAt(sx, sy, factor) {
+    const before = toWorld(sx, sy);
+    cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.zoom * factor));
+    const after = toWorld(sx, sy);
+    cam.x += before.x - after.x;
+    cam.y += before.y - after.y;
+  }
+
+  const pivot = () => ({ x: 0, y: 0 });   // 支点固定在世界原点
+
+  function bob() {
+    // x = L·sinθ, y = L·cosθ（支点为原点）
+    return {
+      x: P.Lpx * Math.sin(S.theta),
+      y: P.Lpx * Math.cos(S.theta)
+    };
+  }
+
+  const bobRadius = () => Math.max(13, Math.min(26, P.Lpx * 0.088));
+
+  /* ============================================================
+   * 3. 绘制
+   * ========================================================== */
+  function drawBackground() {
+    // 底色与柔光用屏幕坐标，始终铺满视口
+    ctx.fillStyle = '#1e1e24';
+    ctx.fillRect(0, 0, W, H);
+
+    const grd = ctx.createRadialGradient(W / 2, H * 0.55, 0, W / 2, H * 0.55, Math.max(W, H) * 0.55);
+    grd.addColorStop(0, 'rgba(90, 209, 255, 0.055)');
+    grd.addColorStop(1, 'rgba(30, 30, 36, 0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+
+    drawGrid();
+  }
+
+  /* 网格绘制在世界坐标系中 —— 镜头移动/缩放时会跟随，提供空间参照 */
+  function drawGrid() {
+    const halfW = W / (2 * cam.zoom) + 1;
+    const halfH = H / (2 * cam.zoom) + 1;
+    const left = cam.x - halfW, right = cam.x + halfW;
+    const top = cam.y - halfH, bottom = cam.y + halfH;
+
+    // 视野很大时自动放大网格间距，避免线条数量爆炸
+    let step = 40;
+    while ((right - left) / step > 140) step *= 2;
+
+    beginWorld();
+    ctx.lineWidth = 1 / cam.zoom;          // 屏幕上始终保持 1px 细线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.045)';
+    ctx.beginPath();
+    for (let x = Math.floor(left / step) * step; x <= right; x += step) {
+      ctx.moveTo(x, top); ctx.lineTo(x, bottom);
+    }
+    for (let y = Math.floor(top / step) * step; y <= bottom; y += step) {
+      ctx.moveTo(left, y); ctx.lineTo(right, y);
+    }
+    ctx.stroke();
+
+    // 世界原点（支点所在的水平基准线），稍亮，便于确认镜头位置
+    ctx.lineWidth = 1 / cam.zoom;
+    ctx.strokeStyle = 'rgba(90, 209, 255, 0.14)';
+    ctx.beginPath();
+    ctx.moveTo(left, 0); ctx.lineTo(right, 0);
+    ctx.stroke();
+    endWorld();
+  }
+
+  function drawTrail() {
+    if (!showTrail || trail.length < 2) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 1; i < trail.length; i++) {
+      const a = (i / trail.length) * 0.42;
+      ctx.strokeStyle = 'rgba(90, 209, 255, ' + a.toFixed(3) + ')';
+      ctx.lineWidth = 1 + (i / trail.length) * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+      ctx.lineTo(trail[i].x, trail[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawGuide(Point) {
+    if (!showGuide) return;
+    const p = pivot();
+    const r = P.Lpx;
+
+    ctx.save();
+    ctx.setLineDash([4, 6]);
+    ctx.lineWidth = 1;
+
+    // 竖直平衡位置参考线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x, p.y + r + 34);
+    ctx.stroke();
+
+    // 初始角度参考线
+    ctx.strokeStyle = 'rgba(255, 190, 120, 0.28)';
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + r * Math.sin(P.theta0), p.y + r * Math.cos(P.theta0));
+    ctx.stroke();
+
+    // 摆动圆弧轨道
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, Math.PI / 2 - Math.abs(P.theta0), Math.PI / 2 + Math.abs(P.theta0));
+    ctx.stroke();
+    ctx.restore();
+
+    // 角度扇形标注
+    const a0 = Math.PI / 2, a1 = Math.PI / 2 - S.theta;
+    const arcR = Math.min(60, r * 0.42);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(90, 209, 255, 0.55)';
+    ctx.fillStyle = 'rgba(90, 209, 255, 0.1)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.arc(p.x, p.y, arcR, Math.min(a0, a1), Math.max(a0, a1));
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRig(b) {
+    const p = pivot();
+
+    // 支架横梁
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 78, p.y);
+    ctx.lineTo(p.x + 78, p.y);
+    ctx.stroke();
+
+    // 支点上的斜撑
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 30, p.y);
+    ctx.lineTo(p.x - 46, p.y - 26);
+    ctx.moveTo(p.x + 30, p.y);
+    ctx.lineTo(p.x + 46, p.y - 26);
+    ctx.stroke();
+    ctx.restore();
+
+    // 摆绳
+    ctx.save();
+    ctx.strokeStyle = 'rgba(210, 230, 245, 0.5)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.restore();
+
+    // 支点
+    ctx.save();
+    ctx.fillStyle = '#c9d6e2';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 5, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBob(b) {
+    const r = bobRadius();
+
+    // 外发光（多层叠加，形成柔和光晕）
+    ctx.save();
+    ctx.shadowColor = 'rgba(90, 209, 255, 0.85)';
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = 'rgba(90, 209, 255, 0.5)';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, r * 0.9, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.restore();
+
+    // 球体（径向渐变模拟金属受光）
+    const g = ctx.createRadialGradient(
+      b.x - r * 0.32, b.y - r * 0.38, r * 0.12,
+      b.x, b.y, r
+    );
+    g.addColorStop(0, '#f2fbff');
+    g.addColorStop(0.38, '#7fdcff');
+    g.addColorStop(1, '#1f6f9c');
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(90, 209, 255, 0.9)';
+    ctx.shadowBlur = 22;
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, r, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    // 高光点
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.beginPath();
+    ctx.arc(b.x - r * 0.3, b.y - r * 0.36, r * 0.16, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 切向速度矢量箭头（可选辅助）
+  function drawVelocity(b) {
+    if (!showGuide) return;
+    const speed = Math.abs(S.omega) * P.Lpx;   // px/s
+    if (speed < 4) return;
+    const scale = 0.16;
+    const len = Math.min(speed * scale, P.Lpx * 0.85);
+    const dir = Math.sign(S.omega);
+    const tx = Math.cos(S.theta) * dir;        // 切向单位向量
+    const ty = -Math.sin(S.theta) * dir;
+    const ex = b.x + tx * len, ey = b.y + ty * len;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 175, 90, 0.8)';
+    ctx.fillStyle = 'rgba(255, 175, 90, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    const ang = Math.atan2(ty, tx);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 8 * Math.cos(ang - 0.4), ey - 8 * Math.sin(ang - 0.4));
+    ctx.lineTo(ex - 8 * Math.cos(ang + 0.4), ey - 8 * Math.sin(ang + 0.4));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function draw() {
+    const b = bob();
+    drawBackground();     // 屏幕底色 + 世界网格（内部自行切换坐标系）
+    beginWorld();         // ↓ 以下均使用世界坐标，受镜头平移/缩放影响
+    drawGuide(b);
+    drawTrail();
+    drawRig(b);
+    drawVelocity(b);
+    drawBob(b);
+    endWorld();
+  }
+
+  /* ============================================================
+   * 4. HUD 数据
+   * ========================================================== */
+  const el = id => document.getElementById(id);
+  let lastZeroT = null, Tmeas = null, lastSign = Math.sign(S.theta);
+
+  // 小角近似周期；实际大角度周期会略长
+  const theoryT = () => TAU * Math.sqrt(Lm() / P.g);
+
+  function updateHUD() {
+    el('hTheta').textContent = (S.theta / RAD).toFixed(1) + '°';
+    el('hOmega').textContent = S.omega.toFixed(2) + ' rad/s';
+    el('hTtheory').textContent = theoryT().toFixed(2) + ' s';
+    el('hTmeas').textContent = Tmeas ? Tmeas.toFixed(2) + ' s' : '测量中…';
+    el('hTime').textContent = S.t.toFixed(1) + ' s';
+    el('hZoom').textContent = cam.zoom.toFixed(2) + '×';
+    el('hCam').textContent = Math.round(cam.x) + ', ' + Math.round(cam.y);
+
+    // 机械能 E = ½·m·(L·ω)² + m·g·L·(1 − cosθ)  (m = 1 kg)
+    const v2 = Math.pow(Lm() * S.omega, 2);
+    const E = 0.5 * v2 + P.g * Lm() * (1 - Math.cos(S.theta));
+    el('hEnergy').textContent = E.toFixed(3) + ' J';
+  }
+
+  /* ============================================================
+   * 5. 主循环：requestAnimationFrame
+   * ========================================================== */
+  let lastTs = null, acc = 0;
+
+  function frame(ts) {
+    if (lastTs === null) lastTs = ts;
+    let dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+
+    // 切后台回来时 dt 可能很大，钳制避免一次性跳变
+    if (dt > 0.05) dt = 0.05;
+
+    // 只有拖动摆球时才冻结物理；平移/缩放镜头不影响演算
+    if (!paused && dragMode !== 'bob') {
+      acc += dt;
+      const n = Math.min(Math.floor(acc / DT_SUB), 240); // 子步上限，防止卡顿后雪崩
+      for (let i = 0; i < n; i++) {
+        integrate(DT_SUB);
+
+        // 过零检测：相邻两次 θ 变号间隔 = 半个周期
+        const s = Math.sign(S.theta);
+        if (s !== 0 && lastSign !== 0 && s !== lastSign) {
+          if (lastZeroT !== null) Tmeas = 2 * (S.t - lastZeroT);
+          lastZeroT = S.t;
+        }
+        if (s !== 0) lastSign = s;
+      }
+      acc -= n * DT_SUB;
+
+      // 轨迹采样
+      const b = bob();
+      trail.push({ x: b.x, y: b.y });
+      if (trail.length > TRAIL_MAX) trail.shift();
+    }
+
+    draw();
+    updateHUD();
+    requestAnimationFrame(frame);
+  }
+
+  /* ============================================================
+   * 6. 交互
+   * ========================================================== */
+  function resetSim() {
+    S.theta = P.theta0;
+    S.omega = 0;
+    S.t = 0;
+    trail.length = 0;
+    lastZeroT = null;
+    Tmeas = null;
+    lastSign = Math.sign(S.theta);
+    acc = 0;
+  }
+
+  /** 完全重置：参数还原为默认值，并把滑块同步归位 */
+  function resetAll() {
+    Object.assign(P, DEFAULTS);
+
+    // 滑块必须跟着回到默认位置，否则界面显示与内部状态会脱节
+    el('sLen').value = P.Lpx;
+    el('sG').value = P.g;
+    el('sK').value = P.k;
+    el('sAng').value = Math.round(P.theta0 / RAD);
+
+    syncLabels();
+    resetSim();
+  }
+
+  function syncLabels() {
+    el('vLen').innerHTML = P.Lpx + ' <span class="unit">px</span>';
+    el('vG').innerHTML = P.g.toFixed(2) + ' <span class="unit">m/s²</span>';
+    el('vAng').textContent = Math.round(P.theta0 / RAD) + '°';
+    el('vK').textContent = P.k.toFixed(3);
+  }
+
+  el('sLen').addEventListener('input', e => { P.Lpx = +e.target.value; syncLabels(); trail.length = 0; });
+  el('sG').addEventListener('input', e => { P.g = +e.target.value; syncLabels(); });
+  el('sK').addEventListener('input', e => { P.k = +e.target.value; syncLabels(); });
+  el('sAng').addEventListener('input', e => {
+    P.theta0 = (+e.target.value) * RAD;
+    syncLabels();
+    resetSim();
+  });
+
+  el('bReset').addEventListener('click', resetAll);
+  el('bPause').addEventListener('click', togglePause);
+  el('bView').addEventListener('click', resetView);
+
+  /* 视角控制面板：不依赖鼠标手势，在任意环境下都能移动镜头 */
+  function panBy(dx, dy) {          // 参数为屏幕像素位移
+    cam.x += dx / cam.zoom;
+    cam.y += dy / cam.zoom;
+  }
+  function zoomCenter(f) { zoomAt(W / 2, H / 2, f); }
+
+  el('pUp').addEventListener('click', () => panBy(0, -40));
+  el('pDown').addEventListener('click', () => panBy(0, 40));
+  el('pLeft').addEventListener('click', () => panBy(-40, 0));
+  el('pRight').addEventListener('click', () => panBy(40, 0));
+  el('pReset').addEventListener('click', resetView);
+  el('bZoomIn').addEventListener('click', () => zoomCenter(1.15));
+  el('bZoomOut').addEventListener('click', () => zoomCenter(1 / 1.15));
+  el('cTrail').addEventListener('change', e => { showTrail = e.target.checked; trail.length = 0; });
+  el('cGuide').addEventListener('change', e => { showGuide = e.target.checked; });
+
+  function togglePause() {
+    paused = !paused;
+    el('bPause').textContent = paused ? '继续' : '暂停';
+  }
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    if (e.key === 'r' || e.key === 'R') resetAll();
+    if (e.key === 'f' || e.key === 'F') resetView();
+    if (e.key === '0') resetView();
+
+    // 方向键平移镜头（按屏幕像素步进，故换算时除以 zoom）
+    const step = 40;
+    if (e.key === 'ArrowLeft')  { cam.x -= step / cam.zoom; e.preventDefault(); }
+    if (e.key === 'ArrowRight') { cam.x += step / cam.zoom; e.preventDefault(); }
+    if (e.key === 'ArrowUp')    { cam.y -= step / cam.zoom; e.preventDefault(); }
+    if (e.key === 'ArrowDown')  { cam.y += step / cam.zoom; e.preventDefault(); }
+    if (e.key === '+' || e.key === '=') { zoomAt(W / 2, H / 2, 1.15); e.preventDefault(); }
+    if (e.key === '-' || e.key === '_') { zoomAt(W / 2, H / 2, 1 / 1.15); e.preventDefault(); }
+  });
+
+  /* ---- 6.1 指针事件：鼠标 / 触摸 / 触控笔统一处理 ----
+   * 关键改动：move 与 up 一律绑在 canvas 自身，并在 pointerdown 时
+   * 调用 setPointerCapture() 把指针锁定到画布。这样即便指针移出画布，
+   * 或页面被嵌在 iframe（如 IDE 内嵌预览）中，事件也不会被外层吞掉。
+   *
+   * 此前把 mousemove / mouseup 绑在 window 上，在嵌套浏览容器里会失效，
+   * 表现为「按得下去、拖动没反应」。
+   * ------------------------------------------------------------ */
+  const pointers = new Map();     // pointerId -> 屏幕坐标
+  let panPrev = null, pinchPrev = 0;
+
+  function pointerPos(ev) {
+    const r = cv.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+
+  function pinchDistance() {
+    const p = [...pointers.values()];
+    return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  }
+
+  function pinchCenter() {
+    const p = [...pointers.values()];
+    return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+  }
+
+  function onPointerDown(ev) {
+    const pos = pointerPos(ev);
+    pointers.set(ev.pointerId, pos);
+    try { cv.setPointerCapture(ev.pointerId); } catch (err) { /* 某些环境不支持则忽略 */ }
+    ev.preventDefault();
+
+    if (pointers.size >= 2) {            // 双指 → 缩放
+      dragMode = 'pinch';
+      pinchPrev = pinchDistance();
+      return;
+    }
+
+    const b = bob();
+    const w = toWorld(pos.x, pos.y);     // 命中判定必须换算到世界坐标
+
+    // 命中半径同样换算到世界尺度，保证缩放后手感一致
+    if (Math.hypot(w.x - b.x, w.y - b.y) < bobRadius() + 14 / cam.zoom) {
+      dragMode = 'bob';
+      cv.style.cursor = 'grabbing';
+    } else {
+      dragMode = 'pan';
+      panPrev = pos;
+      cv.style.cursor = 'move';
+    }
+  }
+
+  function onPointerMove(ev) {
+    if (!pointers.has(ev.pointerId)) return;   // 只跟踪按下过的指针
+    const pos = pointerPos(ev);
+    pointers.set(ev.pointerId, pos);
+    ev.preventDefault();
+
+    if (dragMode === 'pinch') {
+      const d = pinchDistance();
+      if (pinchPrev > 0 && d > 0) {
+        const c = pinchCenter();
+        zoomAt(c.x, c.y, d / pinchPrev);       // 以双指中心为锚点缩放
+      }
+      pinchPrev = d;
+      return;
+    }
+
+    if (dragMode === 'bob') {
+      const w = toWorld(pos.x, pos.y);
+      // 支点在世界原点，且 x = L·sinθ、y = L·cosθ ⇒ θ = atan2(dx, dy)
+      //
+      // 必须把 θ 钳制在 ±170°（与初始角度滑块 sAng 的 -170~170 保持一致）：
+      // 若不限制，把摆球拖到支点正上方会得到 θ = ±180°，此时 sin(θ) = 0，
+      // 恢复力矩为零，松手后摆球将永远停在"倒立"位置一动不动。
+      const MAX_TH = 170 * RAD;
+      S.theta = Math.max(-MAX_TH, Math.min(MAX_TH, Math.atan2(w.x, w.y)));
+      S.omega = 0;
+      trail.length = 0;
+      lastZeroT = null;
+    } else if (dragMode === 'pan') {
+      // 屏幕位移换算回世界位移（除以缩放），方向取反 —— 像拖动地图一样
+      cam.x -= (pos.x - panPrev.x) / cam.zoom;
+      cam.y -= (pos.y - panPrev.y) / cam.zoom;
+      panPrev = pos;
+    }
+  }
+
+  function onPointerUp(ev) {
+    pointers.delete(ev.pointerId);
+    try {
+      if (cv.hasPointerCapture(ev.pointerId)) cv.releasePointerCapture(ev.pointerId);
+    } catch (err) { /* ignore */ }
+
+    if (pointers.size === 0) {
+      if (dragMode === 'bob') {
+        S.omega = 0;
+        lastSign = Math.sign(S.theta);
+        lastZeroT = null;
+      }
+      dragMode = null;
+      panPrev = null;
+      pinchPrev = 0;
+      cv.style.cursor = 'default';
+    } else if (pointers.size === 1 && dragMode === 'pinch') {
+      // 松开一指后转为平移，避免镜头突跳
+      dragMode = 'pan';
+      panPrev = [...pointers.values()][0];
+    }
+  }
+
+  /* ---- 6.2 滚轮缩放（以光标为锚点） ---- */
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const pos = pointerPos(e);
+    zoomAt(pos.x, pos.y, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
+
+  cv.addEventListener('pointerdown', onPointerDown);
+  cv.addEventListener('pointermove', onPointerMove);
+  cv.addEventListener('pointerup', onPointerUp);
+  cv.addEventListener('pointercancel', onPointerUp);
+  cv.addEventListener('lostpointercapture', onPointerUp);
+
+  window.addEventListener('resize', handleResize);
+
+  /* ============================================================
+   * 7. 启动
+   * ========================================================== */
+  resize();
+  resetView();
+  syncLabels();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
