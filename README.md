@@ -8,4 +8,4 @@
 
 ## 项目链接
 
-- GitHub 仓库：`<!-- TODO: 推送到 GitHub 后，将占位符替换为实际仓库链接 -->`
+- GitHub 仓库：https://github.com/unphe/week05-lab-5702126128chen
