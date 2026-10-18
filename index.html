@@ -396,7 +396,7 @@
    * 第二项为线性阻尼，正比于角速度、方向与运动相反
    * ------------------------------------------------------------ */
   function angularAccel(theta, omega) {
-    return -(P.g / LLm()) * Math.sin(theta) - P.k * omega;
+    return -(P.g / Lm()) * Math.sin(theta) - P.k * omega;
   }
 
   /* 积分器：半隐式欧拉（symplectic Euler）
